@@ -381,27 +381,6 @@ ggplot(count_data, aes(x = Content_producer, y = Row_Counts)) +
 
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ###################### Linear regression model   #############################
 
 
@@ -447,7 +426,7 @@ heatmap <- ggplot(heatmap_df, aes(x = Var1, y = Var2, fill = value)) +
 heatmap
 ```
 
-## linear regression model:
+## 11. linear regression model:
 ```{r}
 # select the major colmuns
 data_GoogleSearch_new <- data.frame(
@@ -494,14 +473,12 @@ glance(GoogleSearch_fit)$r.squared
 
 ```
 
-
-## Model Checking - Residuals:
+## 10. Model Checking - Residuals:
 ```{r}
 # Obtain model predictions and residuals
 
 predictions <- augment(google_fit,new_data = data_GoogleSearch_reg)
 residuals <- predictions$.resid
-
 
 # Plotting the histogram of residuals
 ggplot(predictions, aes(x = .resid)) +
@@ -519,7 +496,7 @@ ggplot(google_fit_aug, mapping = aes(x = .fitted, y = .resid)) +
   ggtitle("Linear Regression: Residuals vs. Predicted")
 ```
 
-## Improve the model by weights(number of records for each country):
+## 12. Improve the model by weights(number of records for each country):
 ```{r}
 data_GoogleSearch_new2 <- data.frame(
                  country = data_GoogleSearch$country,
@@ -575,6 +552,7 @@ data_GoogleSearch_new3 <- data.frame(
 )
 ```
 
+##  4 Linear regressions per Type. In addition it prints r_squred and r_squred_adjust for each type.
 
 ```{r}
 type_vec <- c("Canonical Scientific Issues" , "Conspiracy Theories" , "Novel Science and Technology Issues" ,"Socio-Scientific Isuues")
