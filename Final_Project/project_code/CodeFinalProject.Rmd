@@ -1,0 +1,1111 @@
+---
+author: "Team name 18"
+output: pdf_document
+---
+
+### Data README
+
+```{r include_data_readme, comment=''}
+cat(readLines('../data/README.md'), sep = '\n')
+```
+
+### Source code
+
+```{r load-packages, message = FALSE}
+library(knitr)
+library(tidyverse)
+library(broom)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(gridExtra)
+library(tidymodels)
+library(schrute)
+library(lubridate)
+library(forcats)
+```
+
+```{r setup, include = FALSE}
+#opts_chunk$set(echo=FALSE) # hide source code in the document
+```
+
+# Loading the data
+
+```{r}
+data_GoogleSearch <- read.csv("Fill you path to the data")
+data_GoogleSearch
+```
+
+
+## Cleaning the data
+
+```{r,warning=FALSE}
+##(Cleaning the data)
+data_GoogleSearch <- data_GoogleSearch[data_GoogleSearch$correctness_link != 2, ] # filter the un corrected links
+data_GoogleSearch$Site_type <- as.numeric(data_GoogleSearch$Site_type)
+data_GoogleSearch <- data_GoogleSearch[data_GoogleSearch$Site_type %in% c(1, 2, 3, 4, 5, 6), ] # filter blank and not English pages
+data_GoogleSearch <- data_GoogleSearch[data_GoogleSearch$recent_information  %in% c(1, 2, 3, 4), ] # filter blank and value 5(error)
+data_GoogleSearch <- data_GoogleSearch[data_GoogleSearch$high_scientific_lang  %in% c(1, 2, 0), ] # filter blank and value 5(error)
+data_GoogleSearch <- data_GoogleSearch %>%
+  filter(prop_Accessibility_mean <=1)
+data_GoogleSearch
+```
+
+
+## Number of Rows per Country
+
+```{r,warning=FALSE}
+# Create a bar plot of the number of rows per country
+ggplot(data_GoogleSearch, aes(x = country)) +
+  geom_bar(fill = "blue") +
+  xlab("Country") +
+  ylab("Number of Rows") +
+  ggtitle("Number of Rows per Country") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5)
+```
+
+## Remove coutries with small data + edit the 'country' column
+
+```{r,warning=FALSE}
+new_table <- subset(data_GoogleSearch, country != "Abuja,Federal Capital Territory,Nigeria" & country != "Bangkok,Bangkok,Thailand")
+country_mapping <- c("Taipei City,Taiwan" = "Taiwan",
+                     "Central Jakarta,Jakarta,Indonesia" = "Indonesia",
+                     "Rome,Lazio,Italy" = "Italy",
+                     "Berlin,Berlin,Germany" = "Germany",
+                     "Hanoi,Hanoi,Vietnam" = "Vietnam",
+                     "Seoul,South Korea" = "South Korea",
+                     "Tokyo,Tokyo,Japan" = "Japan",
+                     "Washington,District of Columbia,United States" = "United States",
+                     "Bangkok,Bangkok,Thailand" = "Thailand",
+                     "Brasilia,Federal District,Brazil" = "Brazil",
+                     "Lisbon,Lisbon,Portugal" = "Portugal",
+                     "Jerusalem District,Israel" = "Israel",
+                     "Abuja,Federal Capital Territory,Nigeria" = "Nigeria",
+                     "New Delhi,Delhi,India" = "India",
+                     "Madrid,Community of Madrid,Spain" = "Spain",
+                     "Mexico City,Mexico City,Mexico" = "Mexico")
+
+new_table$country <- country_mapping[match(new_table$country, names(country_mapping))]
+```
+
+
+## 1 (a) - ANOVE for prop_Quality_component_score
+```{r}
+model <- aov(prop_Quality_component_score ~ country, data = new_table)
+summary(model)
+```
+
+
+## 1 (b) - LSD per prop_Quality_component_score
+```{r}
+library(agricolae)
+
+#perform Fisher's LSD
+ print(LSD.test(model, "country", alpha=0.05))
+
+```
+
+## 2 (a) - prop_Quality_component_score_table per type- for the best countries vs. other
+```{r}
+countries <- c('Mexico', 'Italy', 'Spain', 'Germany', 'Taiwan', 'United States')
+table1 <- new_table[new_table$country %in% countries, ]
+table2 <- new_table[!new_table$country %in% countries, ]
+mean_scores_table1 <- aggregate(prop_Quality_component_score ~ type, data = table1, FUN = mean)
+mean_scores_table2 <- aggregate(prop_Quality_component_score ~ type, data = table2, FUN = mean)
+merged_table <- merge(mean_scores_table1, mean_scores_table2, by = "type", suffixes = c("_table1", "_table2"))
+merged_table$gap <- merged_table$prop_Quality_component_score_table1 - merged_table$prop_Quality_component_score_table2
+merged_table
+```
+
+
+## 2 (b) - Hypothesis Test: Comparing Mean 'prop_Quality_component_score' for 'Socio-Scientific Issues' in 'table1' and 'table2'
+```{r}
+# Subset 'table_1' and 'table_2' for 'Socio-Scientific Isuues'
+table1_ssi <- table1[table1$type == "Socio-Scientific Isuues", ]
+table2_ssi <- table2[table2$type == "Socio-Scientific Isuues", ]
+prop_score_table1 <- table1_ssi$prop_Quality_component_score
+prop_score_table2 <- table2_ssi$prop_Quality_component_score
+
+# Perform one-sample t-test
+t_test <- t.test(prop_score_table1,prop_score_table2, alternative = "greater", mu =0.12)
+t_test
+``` 
+
+
+## 3 (a) - Calculating Overall Gap of Numeric Columns ('x7_Numerical_data', 'X8_sources', 'X9_references_literature') between Two Tables
+```{r}
+countries <- c('Mexico', 'Italy', 'Spain', 'Germany', 'Taiwan', 'United States')
+table1 <- new_table[new_table$country %in% countries, ]
+table2 <- new_table[!new_table$country %in% countries, ]
+
+# Calculate mean scores for table1
+mean_scores_table1 <- sapply(table1[, c("X7_Numerical_data", "X8_sources", "X9_references_literature")], function(x) mean(x, na.rm = TRUE))
+
+# Calculate mean scores for table2
+mean_scores_table2 <- sapply(table2[, c("X7_Numerical_data", "X8_sources", "X9_references_literature")], function(x) mean(x, na.rm = TRUE))
+
+# Calculate the gap for each column
+gap_X7_Numerical_data <- mean_scores_table1["X7_Numerical_data"] - mean_scores_table2["X7_Numerical_data"]
+gap_X8_sources <- mean_scores_table1["X8_sources"] - mean_scores_table2["X8_sources"]
+gap_X9_references_literature <- mean_scores_table1["X9_references_literature"] - mean_scores_table2["X9_references_literature"]
+
+# Print the overall gap
+overall_gap <- c(gap_X7_Numerical_data, gap_X8_sources, gap_X9_references_literature)
+overall_gap
+```
+
+## 3 (b) - Hypothesis Test: Comparing Mean of 'X9_references_literature' between 'table1' and 'table2'
+```{r}
+references_table1 <- table1$X9_references_literature
+references_table2 <- table2$X9_references_literature
+t_test <- t.test(references_table1, references_table2, alternative = "greater", mu = 0.095)
+t_test
+```
+
+
+## 4 (a) - ANOVA for Accessibility_component_score
+
+```{r}
+model <- aov(Accessibility_component_score ~ country, data = new_table)
+summary(model)
+```
+
+## 4 (b) -  LSD per Accessibility_component_score
+
+```{r}
+library(agricolae)
+
+#perform Fisher's LSD
+print(LSD.test(model,"country", p.adj = "none", alpha = 0.05))
+# alphas <- seq(0.02, 0.15, length.out = 10)
+# 
+# for (alpha in alphas) {
+#   print(LSD.test(model, "country", p.adj = "none", alpha = alpha))
+# }
+
+```
+
+
+## 5 (a) - prop_Accessibility_component_score for Taiwan
+
+```{r}
+# Filter the table based on the condition
+filtered_table <- new_table[new_table$country == 'Taiwan', ]
+
+mean_scores <- aggregate(prop_Accessibility_component_score ~ type, data = filtered_table, FUN = mean)
+
+# Convert 'type' column to factor with ordered levels
+mean_scores$type <- factor(mean_scores$type, levels = mean_scores$type[order(mean_scores$prop_Accessibility_component_score)])
+
+# Plotting the mean scores
+ggplot(mean_scores, aes(x = type, y = prop_Accessibility_component_score)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  geom_text(aes(label = round(prop_Accessibility_component_score, 2), y = prop_Accessibility_component_score + 0.1),
+            position = position_dodge(width = 0.5), vjust = 0.1, size = 3) +
+  labs(x = "Type", y = "Mean Accessibility Component Score") +
+  ggtitle("Mean Accessibility Component Score by Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+## 5 (b) - Prop Accessibility Component Score per country - for Novel Science and Technology Issues
+
+```{r}
+library(ggplot2)
+
+filtered_types <- subset(new_table, type == "Novel Science and Technology Issues" | type == "Socio-Scientific Isuues")
+# Calculate the mean scores for each type and country
+mean_scores <- aggregate(prop_Accessibility_component_score ~ type + country, data = filtered_types, FUN = mean)
+
+# Plotting the mean scores
+my_plot <- ggplot(mean_scores, aes(x = reorder(country, -prop_Accessibility_component_score), y = prop_Accessibility_component_score, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Country", y = "Mean prop_Accessibility_component_score") +
+  ggtitle("Mean prop_Accessibility_component_score by Country and Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#ggsave("Mean prop_Accessibility_component_score.png", plot = my_plot, width = 6, height = 4, dpi = 300)
+my_plot
+
+```
+
+
+## 6 (a) -  ANOVA for prop_SSI_mean
+```{r}
+model <- aov(prop_SSI_mean ~ country, data = new_table)
+summary(model)
+```
+
+
+
+## 6 (b) - LSD per prop_SSI_mean
+
+
+```{r}
+library(agricolae)
+
+#perform Fisher's LSD
+print(LSD.test(model,"country", p.adj = "none", alpha = 0.05))
+
+```
+
+
+## 7 (a) - Gap betweenn Indonesia and all the other - by SSI measures
+```{r}
+# Filter 'new_table' for 'country' == 'Central Jakarta,Jakarta,Indonesia'
+table1 <- new_table[new_table$country == 'Indonesia', ]
+
+# Filter 'new_table' for all other countries
+table2 <- new_table[!(new_table$country == 'Indonesia'), ]
+
+# Calculate mean values for table1
+mean_table1 <- sapply(table1[, c("prop_daily_reference", "prop_local_examples", "prop_advantages_and_disadvantages_or_risks_and_benefits")], mean, na.rm = TRUE)
+
+# Calculate mean values for table2
+mean_table2 <- sapply(table2[, c("prop_daily_reference", "prop_local_examples", "prop_advantages_and_disadvantages_or_risks_and_benefits")], mean, na.rm = TRUE)
+
+# Calculate the gap between tables
+gap <- mean_table1 - mean_table2
+
+# Print the results
+gap
+
+```
+
+
+## 7 (b) - Hypothesis Test: comparing prop_advantages_and_disadvantages_or_risks_and_benefits inIndonesia VS. others
+```{r}
+table1 <- new_table[new_table$country == 'Indonesia', ]
+
+# Filter 'new_table' for all other countries
+table2 <- new_table[!(new_table$country == 'Indonesia'), ]
+
+# Calculate the mean 'prop_advantages_and_disadvantages_or_risks_and_benefits' for Indonesia and all other countries
+mean_indonesia <- mean(table1$prop_advantages_and_disadvantages_or_risks_and_benefits, na.rm = TRUE)
+mean_other <- mean(table2$prop_advantages_and_disadvantages_or_risks_and_benefits, na.rm = TRUE)
+
+# Perform the one-sample t-test
+t_test <- t.test(table1$prop_advantages_and_disadvantages_or_risks_and_benefits,
+                 table2$prop_advantages_and_disadvantages_or_risks_and_benefits,
+                 alternative = "greater",
+                 mu = 0.39)
+t_test
+
+```
+
+
+## 8 (a) - ANOVA for prop_Conspiratorial_mean
+
+```{r}
+model <- aov(prop_Conspiratorial_mean ~ country, data = new_table)
+summary(model)
+```
+
+
+## 8 (b) - LSD per prop_Conspiratorial_mean
+
+```{r}
+library(agricolae)
+
+#perform Fisher's LSD
+print(LSD.test(model, "country", p.adj = "none", alpha = 0.05))
+
+
+```
+
+
+## 9(a) - Mean prop_Conspiratorial by content_producer - for the countries with the lowest prop_Conspiratorial_mean
+
+```{r}
+library(ggplot2)
+
+# Filter the data for the specified countries
+filtered_data <- subset(new_table, country %in% c('Israel', 'United States', 'Spain', 'Japan'))
+
+# Calculate the mean of prop_Conspiratorial_mean by Content_producer
+mean_data <- aggregate(prop_Conspiratorial_mean ~ Content_producer, data = filtered_data, FUN = mean)
+
+# Sort the mean_data in decreasing order of prop_Conspiratorial_mean
+mean_data <- mean_data[order(mean_data$prop_Conspiratorial_mean, decreasing = TRUE), ]
+
+# Numeric values in the 'Content_producer' column
+numeric_values <- mean_data$Content_producer
+
+# String labels corresponding to the numeric values
+string_labels <- c("Government body", "NGO", "Research organizations",
+                   "Academic institution", "Informal science education",
+                   "Scientific Journals", "Medical site", "Encyclopedia or dictionary", "Media and communication",
+                   "Commercial-Economic", "Social media site", "Fact checkers site",
+                    "Other")
+
+# Convert numeric values to strings in the 'Content_producer' column
+mean_data <- mean_data %>%
+  mutate(Content_producer = factor(Content_producer, labels = string_labels))
+
+
+# Plotting the bar plot with mean prop_Conspiratorial_mean
+my_plot <- ggplot(mean_data, aes(x = reorder(Content_producer, -prop_Conspiratorial_mean), y = prop_Conspiratorial_mean)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  geom_text(aes(label = round(prop_Conspiratorial_mean, 2), y = prop_Conspiratorial_mean + 0.02),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(x = "Content Producer", y = "Mean prop_Conspiratorial") +
+  ggtitle("Mean prop_Conspiratorial by Content Producer") +
+  scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 15)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#ggsave("Content Producer.png", plot = my_plot, width = 8, height = 4, dpi = 300)
+my_plot
+
+```
+
+## 9 (b) - Number of Rows per Content Producer
+```{r}
+library(ggplot2)
+
+# Count the number of rows per Content_producer
+row_counts <- table(filtered_data$Content_producer)
+
+# Create a data frame with Content_producer and Row_Counts
+count_data <- data.frame(Content_producer = names(row_counts), Row_Counts = as.numeric(row_counts))
+
+# Plotting the bar plot with row counts
+ggplot(count_data, aes(x = Content_producer, y = Row_Counts)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  geom_text(aes(label = Row_Counts, y = Row_Counts + 1), vjust = -0.5, size = 3) +
+  labs(x = "Content Producer", y = "Row Counts") +
+  ggtitle("Number of Rows per Content Producer") +
+  scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 15)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###################### Linear regression model   #############################
+
+
+# In the table above, we can see the correlation between variables measuring quality and variables measuring accessibility. We will rely on the data with the highest correlation in order to find a predictive model.
+
+```{r,warning=FALSE, out.width="50%", out.height="50%", fig.align="center"}
+data_GoogleSearch_new <- data.frame(
+                 prop_recent_information = data_GoogleSearch$prop_recent_information,
+                 prop_author_background = data_GoogleSearch$prop_author_background,
+                 prop_major_scientific_errors = data_GoogleSearch$prop_major_scientific_errors,
+                 prop_Quality_component_score = data_GoogleSearch$prop_Quality_component_score,
+                 prop_Quality_mean =  data_GoogleSearch$prop_Quality_mean,
+                 prop_Accessibility_component_score = data_GoogleSearch$prop_Accessibility_component_score , 
+                 prop_Accessibility_mean = data_GoogleSearch$prop_Accessibility_mean,
+                 prop_Jargon_score = data_GoogleSearch$prop_Jargon_score 
+)
+
+columns1 <- c("prop_recent_information","prop_author_background","prop_major_scientific_errors","prop_Quality_component_score","prop_Quality_mean" )
+columns2 <- c( "prop_Accessibility_mean", "prop_Jargon_score" , "prop_Accessibility_component_score")
+
+cor_matrix <- round(cor(data_GoogleSearch_new[, columns1], data_GoogleSearch_new[, columns2]) , 2)
+data_matrix <- as.matrix(cor_matrix)
+row_names <- rownames(data_matrix)
+col_names <- colnames(data_matrix)
+
+heatmap_df <- expand.grid(Var1 = col_names, Var2 = row_names)
+heatmap_df$value <- data_matrix[as.matrix(heatmap_df[, c("Var2", "Var1")])]
+
+heatmap <- ggplot(heatmap_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4, fontface = "bold") +
+  labs(title = "Correlation Heatmap", x = "", y = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold",hjust=0.5),
+        axis.text = element_text(size = 10, color = "black"),
+        axis.title = element_blank(),
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10))+
+  theme(axis.text.x = element_text(hjust=c(0.6,0.5,0.25), size = 8))
+
+# Display the heatmap
+heatmap
+```
+
+## linear regression model:
+```{r}
+# select the major colmuns
+data_GoogleSearch_new <- data.frame(
+                 prop_recent_information = data_GoogleSearch$prop_recent_information,
+                 prop_author_background = data_GoogleSearch$prop_author_background,
+                 prop_major_scientific_errors = data_GoogleSearch$prop_major_scientific_errors,
+                 prop_Quality_component_score = data_GoogleSearch$prop_Quality_component_score,
+                 prop_Quality_mean =  data_GoogleSearch$prop_Quality_mean,
+                 prop_Accessibility_component_score = data_GoogleSearch$prop_Accessibility_component_score , 
+                 prop_Accessibility_mean = data_GoogleSearch$prop_Accessibility_mean,
+                 prop_Jargon_score = data_GoogleSearch$prop_Jargon_score 
+)
+
+# dividing to train test
+#recipe build
+cols_to_remove <- c("prop_recent_information" , "prop_author_background" , "prop_major_scientific_errors" , "prop_Quality_component_score")
+GoogleSearch_rec <- recipe(prop_Quality_mean~ . , data = data_GoogleSearch_new) %>%
+  step_rm(all_of(cols_to_remove)) %>%
+  step_zv(all_predictors())
+
+# building reg model 
+GoogleSearch_rec_model <- linear_reg() %>% 
+  set_engine("lm")
+
+# building workflow
+GoogleSearch_wflow <- workflow() %>% 
+  add_model(GoogleSearch_rec_model) %>% 
+  add_recipe(GoogleSearch_rec)
+
+#model fiting
+GoogleSearch_fit <- GoogleSearch_wflow %>% 
+  fit(data = data_GoogleSearch_new)
+tidy <-  tidy(GoogleSearch_fit) 
+
+slope <- tidy$estimate[2]
+intercept <- tidy$estimate[1]
+coefficients <- tidy$estimate[2:4]
+variable_names <- c("prop_Accessibility_component_score(i)", "prop_Accessibility_mean(i)", "prop_Jargon_score(i)")
+
+tidy
+cat("Linear function: y(i) =", intercept, "+", paste(coefficients, variable_names, sep = " * ", collapse = " + ")) 
+glance(GoogleSearch_fit)$adj.r.squared
+glance(GoogleSearch_fit)$r.squared
+
+```
+
+
+## Model Checking - Residuals:
+```{r}
+# Obtain model predictions and residuals
+
+predictions <- augment(google_fit,new_data = data_GoogleSearch_reg)
+residuals <- predictions$.resid
+
+
+# Plotting the histogram of residuals
+ggplot(predictions, aes(x = .resid)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  labs(x = "Residuals", y = "Frequency") +
+  ggtitle("Linear Regression: Residual Distribution")
+
+
+google_fit_aug <- augment(google_fit$fit)
+
+ggplot(google_fit_aug, mapping = aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(x = "Predicted Values", y = "Residuals") +
+  ggtitle("Linear Regression: Residuals vs. Predicted")
+```
+
+## Improve the model by weights(number of records for each country):
+```{r}
+data_GoogleSearch_new2 <- data.frame(
+                 country = data_GoogleSearch$country,
+                 prop_recent_information = data_GoogleSearch$prop_recent_information,
+                 prop_author_background = data_GoogleSearch$prop_author_background,
+                 prop_major_scientific_errors = data_GoogleSearch$prop_major_scientific_errors,
+                 prop_Quality_component_score = data_GoogleSearch$prop_Quality_component_score,
+                 prop_Quality_mean =  data_GoogleSearch$prop_Quality_mean,
+                 prop_Accessibility_component_score = data_GoogleSearch$prop_Accessibility_component_score , 
+                 prop_Accessibility_mean = data_GoogleSearch$prop_Accessibility_mean,
+                 prop_Jargon_score = data_GoogleSearch$prop_Jargon_score 
+)
+
+# Giving weights according the samples of each country
+counts <- table(data_GoogleSearch$country)
+max_sample_size <- max(counts)
+weights <- counts / max_sample_size
+
+weights_df <- data.frame(country = names(weights), weight = weights)
+weights_df$weight.Var1 <- NULL
+data_GoogleSearch <- merge(data_GoogleSearch, weights_df, by = "country")
+
+weight_vector <- data_GoogleSearch$weight.Freq    # vector of the weight for each country
+
+GoogleSearch_fit_weighted <-lm(prop_Quality_mean~ prop_Accessibility_component_score + prop_Accessibility_mean	 + prop_Jargon_score , data = data_GoogleSearch_new2 , weights = weight_vector)
+
+print(glance(GoogleSearch_fit_weighted)$adj.r.squared)
+print(glance(GoogleSearch_fit_weighted)$r.squared)
+
+slope <- tidy$estimate[2]
+intercept <- tidy$estimate[1]
+coefficients <- tidy$estimate[2:4]
+variable_names <- c("prop_Accessibility_component_score(i)", "prop_Accessibility_mean(i)", "prop_Jargon_score(i)")
+
+tidy
+cat("Linear function: prop_Quality_mean(i) =", intercept, "+", paste(coefficients, variable_names, sep = " * ", collapse = " + ")) 
+```
+
+
+## Preparing the data to separate the data per Type:
+```{r}
+data_GoogleSearch_new3 <- data.frame(
+                 country = data_GoogleSearch$country,
+                 type = data_GoogleSearch$type,
+                 prop_recent_information = data_GoogleSearch$prop_recent_information,
+                 prop_author_background = data_GoogleSearch$prop_author_background,
+                 prop_major_scientific_errors = data_GoogleSearch$prop_major_scientific_errors,
+                 prop_Quality_component_score = data_GoogleSearch$prop_Quality_component_score,
+                 prop_Quality_mean =  data_GoogleSearch$prop_Quality_mean,
+                 prop_Accessibility_component_score = data_GoogleSearch$prop_Accessibility_component_score , 
+                 prop_Accessibility_mean = data_GoogleSearch$prop_Accessibility_mean,
+                 prop_Jargon_score = data_GoogleSearch$prop_Jargon_score 
+)
+```
+
+
+```{r}
+type_vec <- c("Canonical Scientific Issues" , "Conspiracy Theories" , "Novel Science and Technology Issues" ,"Socio-Scientific Isuues")
+for (element in type_vec){
+  print(element)
+  filtered_data_by_type <- filter(data_GoogleSearch_new3, type == element)
+  GoogleSearch_fit_by_type <-lm(prop_Quality_mean~ prop_Accessibility_component_score + prop_Accessibility_mean	 + prop_Jargon_score , data = filtered_data_by_type)
+
+  print(glance(GoogleSearch_fit_by_type)$adj.r.squared)
+  print(glance(GoogleSearch_fit_by_type)$r.squared)
+  cat("\n")  
+  
+  slope <- tidy$estimate[2]
+  intercept <- tidy$estimate[1]
+  coefficients <- tidy$estimate[2:4]
+  variable_names <- c("prop_Accessibility_component_score(i)", "prop_Accessibility_mean(i)", "prop_Jargon_score(i)")
+
+  print(tidy)
+  cat("Linear function: prop_Quality_mean(i) =", intercept, "+", paste(coefficients, variable_names, sep = " * ", collapse = " + ")) 
+  cat("\n\n")  
+}
+```
+   
+   
+##  4 Weighted Linear regressions per Type. In addition it prints r_squred and r_squred_adjust for each type.
+
+```{r}
+type_vec <- c("Socio-Scientific Isuues" , "Conspiracy Theories" ,"Canonical Scientific Issues" , "Novel Science and Technology Issues")
+adj_r_squared <- c()
+r_squared <- c()
+
+for (element in type_vec){
+  print(element)
+  filtered_data_by_type <- filter(data_GoogleSearch_new3, type == element)
+  
+  counts <- table(filtered_data_by_type$country)
+  max_sample_size <- max(counts)
+  weights <- counts / max_sample_size
+  
+  weights_df <- data.frame(country = names(weights), weight = weights)
+  weights_df$weight.Var1 <- NULL
+  filtered_data_by_type <- merge(filtered_data_by_type, weights_df, by = "country")
+  
+  
+  weight_vector <- filtered_data_by_type$weight.Freq
+
+  
+ GoogleSearch_fit_by_type_weighted <-lm(prop_Quality_mean~ prop_Accessibility_component_score + prop_Accessibility_mean	 + prop_Jargon_score , data = filtered_data_by_type , weights = weight_vector )
+  
+  
+  print(glance(GoogleSearch_fit_by_type_weighted)$adj.r.squared)
+  print(glance(GoogleSearch_fit_by_type_weighted)$r.squared)
+  
+  adj_r_squared <- c(adj_r_squared,glance(GoogleSearch_fit_by_type_weighted)$adj.r.squared)
+  r_squared <- c(r_squared, glance(GoogleSearch_fit_by_type_weighted)$r.squared)
+
+  
+  cat("\n")  
+  
+  slope <- tidy$estimate[2]
+  intercept <- tidy$estimate[1]
+  coefficients <- tidy$estimate[2:4]
+  variable_names <- c("prop_Accessibility_component_score(i)", "prop_Accessibility_mean(i)", "prop_Jargon_score(i)")
+
+  print(tidy)
+
+  cat("Linear function: prop_Quality_mean(i) =", intercept, "+", paste(coefficients, variable_names, sep = "*", collapse = " + ")) 
+  cat("\n\n")    
+}
+
+results_df <- data.frame(category = type_vec, adj_r_squared = adj_r_squared, r_squared = r_squared)
+
+# Reshape the data into a long format
+results_long <- results_df %>%
+  pivot_longer(cols = c(adj_r_squared, r_squared),
+               names_to = "Metric",
+               values_to = "Value")
+custom_colors <- c("#336699", "#FF9900")
+# Define the plot aesthetics
+theme_set(theme_minimal())
+font_size <- 8
+x_label_rotation <- 27
+
+# Create the barplot with wrapped x-axis labels
+# Sort the results by ascending adjusted R-squared values
+results_long$category <- fct_reorder(results_long$category, results_long$Value, .desc = FALSE)
+
+# Create the barplot with angled x-axis labels, numbers on bars, and sorted categories
+ggplot(results_long, aes(x = category, y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(Value, 4)), position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +  # Add numbers on bars
+  scale_fill_manual(values = custom_colors) +
+  labs(x = NULL, y = "Value", fill = NULL) +
+  ggtitle("Adjusted R-squared and R-squared by Category") +
+  theme(
+    axis.text.x = element_text(angle = x_label_rotation, hjust = 0.6, vjust = 0.8, size = font_size ),
+    axis.text.y = element_text(size = font_size),
+    axis.title = element_text(size = font_size),
+    plot.title = element_text(size = font_size + 4, face = "bold"),
+    legend.key.size = unit(0.2, "cm")
+    
+  )
+```
+
+
+
+
+########### Adittional Graphs- Not included in the conclusions ##############
+
+
+## 2. Average prop_Quality_mean by Language Group
+
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Calculate the average of prop_Quality_mean for each group
+hebrew_avg <- mean(hebrew_data$prop_Quality_mean)
+non_hebrew_avg <- mean(non_hebrew_data$prop_Quality_mean)
+
+# Create a data frame with the group names and average values
+avg_data <- data.frame(Group = c("Hebrew", "Non-Hebrew"),
+                       Average = c(hebrew_avg, non_hebrew_avg))
+
+# Create the bar plot
+ggplot(avg_data, aes(x = Group, y = Average)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_text(aes(label = round(Average, 2)), vjust = -0.3, size = 4) +  # Add labels with rounded values
+  labs(title = "Average prop_Quality_mean by Language Group",
+       x = "Language Group", y = "Average prop_Quality_mean")
+```
+
+
+## 2. Average prop_Accessibility_mean by Language Group
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Calculate the average of prop_Accessibility_mean for each group
+hebrew_avg <- mean(hebrew_data$prop_Accessibility_mean)
+non_hebrew_avg <- mean(non_hebrew_data$prop_Accessibility_mean)
+
+# Create a data frame with the group names and average values
+avg_data <- data.frame(Group = c("Hebrew", "Non-Hebrew"),
+                       Average = c(hebrew_avg, non_hebrew_avg))
+
+# Create the bar plot
+ggplot(avg_data, aes(x = Group, y = Average)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_text(aes(label = round(Average, 2)), vjust = -0.3, size = 4) +  # Add labels with rounded values
+  labs(title = "Average prop_Accessibility_mean by Language Group",
+       x = "Language Group", y = "Average prop_Accessibility_mean")
+```
+
+## 3. Average prop_Quality_component_score by Language Group
+```{r}
+# Load the required library
+library(ggplot2)
+library(dplyr)
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Calculate the average of Quality_component_score for each group
+hebrew_avg <- mean(hebrew_data$prop_Quality_component_score)
+non_hebrew_avg <- mean(non_hebrew_data$prop_Quality_component_score)
+
+# Create a data frame with the group names and average values
+avg_data <- data.frame(Group = c("Hebrew", "Non-Hebrew"),
+                       Average = c(hebrew_avg, non_hebrew_avg))
+
+# Create the bar plot
+ggplot(avg_data, aes(x = Group, y = Average)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_text(aes(label = round(Average, 2)), vjust = -0.5, size = 4) +  # Add labels with rounded values
+  labs(title = "Average prop_Quality_component_score by Language Group",
+       x = "Language Group", y = "Average prop_Quality_component_score")
+
+```
+
+
+## 4. Average prop_Accessibility_component_score by Language Group
+
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Calculate the average of Accessibility_component_score for each group
+hebrew_avg <- mean(hebrew_data$prop_Accessibility_component_score)
+non_hebrew_avg <- mean(non_hebrew_data$prop_Accessibility_component_score)
+
+# Create a data frame with the group names and average values
+avg_data <- data.frame(Group = c("Hebrew", "Non-Hebrew"),
+                       Average = c(hebrew_avg, non_hebrew_avg))
+
+# Create the bar plot
+ggplot(avg_data, aes(x = Group, y = Average)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_text(aes(label = round(Average, 2)), vjust = -0.3, size = 4) +  # Add labels with rounded values
+  labs(title = "Average prop_Accessibility_component_score by Language Group",
+       x = "Language Group", y = "Average prop_Accessibility_component_score")
+
+```
+
+
+## 4. Average prop_recent_information by Language Group
+
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Calculate the average of prop_recent_information for each group
+hebrew_avg <- mean(hebrew_data$prop_recent_information)
+non_hebrew_avg <- mean(non_hebrew_data$prop_recent_information)
+
+# Create a data frame with the group names and average values
+avg_data <- data.frame(Group = c("Hebrew", "Non-Hebrew"),
+                       Average = c(hebrew_avg, non_hebrew_avg))
+
+# Create the bar plot
+ggplot(avg_data, aes(x = Group, y = Average)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_text(aes(label = round(Average, 2)), vjust = -0.5, size = 4) +  # Add labels with rounded values
+  labs(title = "Average prop_recent_information by Language Group",
+       x = "Language Group", y = "Average prop_recent_information")
+```
+
+
+## 5. T-test for prop_Quality_mean
+
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Perform one-sample t-test
+ttest_result <- t.test(hebrew_data$prop_Quality_mean, mu = mean(non_hebrew_data$prop_Quality_mean), alternative = "less") # Ho: AVG Quality in Hebrew = AVG Quality in non-Hebrew
+
+# Print the t-test results
+cat("One-Sample t-test Results:\n")
+cat("Test Statistic:", ttest_result$statistic, "\n")
+cat("p-value:", ttest_result$p.value, "\n")
+```
+
+## 6. T-test for prop_Accessibility_mean
+```{r}
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Perform one-sample t-test
+ttest_result <- t.test(hebrew_data$prop_Accessibility_mean, mu = mean(non_hebrew_data$prop_Accessibility_mean), alternative = "less")
+
+# Print the t-test results
+cat("One-Sample t-test Results:\n")
+cat("Test Statistic:", ttest_result$statistic, "\n")
+cat("p-value:", ttest_result$p.value, "\n")
+
+```
+
+## 7. T-test prop_Quality_component_score
+```{r}
+
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Perform one-sample t-test
+ttest_result <- t.test(hebrew_data$prop_Quality_component_score, mu = mean(non_hebrew_data$prop_Quality_component_score), alternative = "less")
+
+# Print the t-test results
+cat("One-Sample t-test Results:\n")
+cat("Test Statistic:", ttest_result$statistic, "\n")
+cat("p-value:", ttest_result$p.value, "\n")
+
+```
+## 8. T-test for prop_Accessibility_component_score
+
+```{r}
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Perform one-sample t-test
+ttest_result <- t.test(hebrew_data$prop_Accessibility_component_score, mu = mean(non_hebrew_data$prop_Accessibility_component_score), alternative = "less")
+
+# Print the t-test results
+cat("One-Sample t-test Results:\n")
+cat("Test Statistic:", ttest_result$statistic, "\n")
+cat("p-value:", ttest_result$p.value, "\n")
+
+
+```
+
+## 9. T-TEST for prop_recent_information
+
+```{r}
+# Filter the data for the two groups
+hebrew_data <- filter(data_GoogleSearch, langs == "Hebrew")
+non_hebrew_data <- filter(data_GoogleSearch, langs != "Hebrew")
+
+# Perform one-sample t-test
+ttest_result <- t.test(hebrew_data$prop_recent_information, mu = mean(non_hebrew_data$prop_recent_information), alternative = "less")
+
+# Print the t-test results
+cat("One-Sample t-test Results:\n")
+cat("Test Statistic:", ttest_result$statistic, "\n")
+cat("p-value:", ttest_result$p.value, "\n")
+
+```
+
+####### Result Number######
+
+## The Result_number coorolation to the prop_Quality_mean: group by country 
+```{r}
+# Load the data and select relevant columns
+df3 <- data.frame(Result_number = data_GoogleSearch$Result_number,
+                  Quality_mean = data_GoogleSearch$prop_Quality_mean,
+                  country = data_GoogleSearch$country)
+df3 <- na.omit(df3)
+# Create scatter plot with trend line and facet_wrap
+ggplot(df3, aes(x = Result_number, y = Quality_mean)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Result Number", y = "Quality Mean") +
+  facet_wrap(~ country, scales = "free") +
+  theme_minimal()
+
+# Calculate and filter correlation values
+correlation_values <- df3 %>%
+  group_by(country) %>%
+  summarise(correlation = as.numeric(cor(Result_number, Quality_mean)),
+            count = n())%>%
+      mutate(proportion = count / sum(count))
+correlation_values
+
+filtered_correlations <- correlation_values %>%
+  filter(correlation >= 0.2 & correlation <= 1 | correlation <= -0.2 & correlation >= -1) 
+
+filtered_correlations
+```
+
+## The Result_number coorolation to the prop_Quality_mean
+```{r}
+# Load the data and select relevant columns
+df4 <- data.frame(Result_number = data_GoogleSearch$Result_number,
+                 Accessability_mean = data_GoogleSearch$prop_Accessibility_mean)
+
+# Remove rows with missing data
+sum(is.na(df4)) ##119
+
+df4 <- na.omit(df4)
+
+# Create scatter plot with trend line
+ggplot(df4, aes(x = Result_number, y = Accessability_mean)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Result Number", y = "access Mean")
+```
+
+
+## The Result_number coorolation to the prop_Quality_mean: group by country
+
+```{r}
+# Load the data and select relevant columns
+df3 <- data.frame(Result_number = data_GoogleSearch$Result_number,
+                  Accessibility_mean = data_GoogleSearch$prop_Accessibility_mean,
+                  country = data_GoogleSearch$country)
+df3 <- na.omit(df3)
+# Create scatter plot with trend line and facet_wrap
+ggplot(df3, aes(x = Result_number, y = Accessibility_mean)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Result Number", y = "Quality Mean") +
+  facet_wrap(~ country, scales = "free") +
+  theme_minimal()
+
+# Calculate and filter correlation values
+correlation_values <- df3 %>%
+  group_by(country) %>%
+  summarise(correlation = as.numeric(cor(Result_number, Accessibility_mean)),
+            count = n())%>%
+      mutate(proportion = count / sum(count))
+correlation_values
+
+filtered_correlations <- correlation_values %>%
+  filter(correlation >= 0.2 & correlation <= 1 | correlation <= -0.2 & correlation >= -1) 
+
+filtered_correlations
+
+```
+
+
+## Plot the shows the prop_recent_information per langs
+```{r}
+# Load the data and select relevant columns
+df <- data.frame(langs = data_GoogleSearch$langs,
+                 recent_inf = data_GoogleSearch$prop_recent_information)
+
+# Group by country and calculate mean quality
+df_grouped <- df %>%
+  group_by(langs) %>%
+  summarise(mean_recent_inf = mean(recent_inf, na.rm = TRUE))%>%
+  arrange(desc(mean_recent_inf))
+
+df_grouped
+
+# Create bar plot of mean quality by country
+ggplot(df_grouped, aes(x = langs, y = mean_recent_inf)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "language", y = "Mean Quality") +
+  ggtitle("Mean Quality by language") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 8))
+```
+
+
+## Plot the shows the prop_recent_information per langs
+
+```{r}
+# Load the data and select relevant columns
+df <- data.frame(langs = data_GoogleSearch$langs,
+                 recent_inf = data_GoogleSearch$prop_recent_information)
+
+# Group by language and calculate mean recent information
+df_grouped <- df %>%
+  group_by(langs) %>%
+  summarise(mean_recent_inf = mean(recent_inf, na.rm = TRUE)) %>%
+  arrange(desc(mean_recent_inf))
+
+# Create bar plot of mean recent information by language
+ggplot(df_grouped, aes(x = langs, y = mean_recent_inf)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = round(mean_recent_inf, 3)), vjust = -0.5, size = 3) + 
+  labs(x = "Language", y = "Mean Recent Information") +
+  ggtitle("Mean Recent Information by Language") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 8))
+```
+
+## correlation bettween Result_number(splited to 3 groups) to Site_type
+```{r}
+filtered_data <- data_GoogleSearch
+
+# Define the groups based on Result_number
+filtered_data <- filtered_data %>%
+  mutate(Group = case_when(
+    Result_number %in% c(1, 2,3) ~ "Group 1",
+    Result_number %in% c(4, 5, 6, 7) ~ "Group 2",
+    Result_number %in% c(8, 9, 10, 11, 12, 13, 14, 15) ~ "Group 3"
+  ))
+
+# Calculate the counts of each Site_type within each group
+site_type_counts <- filtered_data %>%
+  group_by(Group, Site_type) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(!(is.na(Group) & Site_type == 5) & !(is.na(Group) & Site_type == 3)& !(is.na(Group) & Site_type == 1))
+
+# Calculate the total count within each group
+group_counts <- site_type_counts %>%
+  group_by(Group) %>%
+  summarise(total_count = sum(count), .groups = "drop")
+group_counts
+#without order by:
+# site_type_proportions <- site_type_counts %>%  
+#   left_join(group_counts, by = "Group") %>%
+#   mutate(proportion = count / total_count,
+#          percent = proportion * 100)
+
+#with order by:
+site_type_proportions <- site_type_counts %>%
+  left_join(group_counts, by = "Group") %>%
+  mutate(proportion = count / total_count,
+         percent = proportion * 100) %>%
+  arrange(desc(Site_type))
+
+site_type_proportions
+```
+
+
+# correlation bettween Result_number(splited to 3 groups) to langs
+```{r}
+# Filter the data to include Result_number 
+filtered_data <- data_GoogleSearch
+
+# Define the groups based on Result_number
+filtered_data <- filtered_data %>%
+  mutate(Group = case_when(
+    Result_number %in% c(1, 2, 3) ~ "Group 1",
+    Result_number %in% c(4, 5, 6, 7) ~ "Group 2",
+    Result_number %in% c(8, 9, 10, 11, 12, 13, 14, 15, 16, 17) ~ "Group 3"
+  ))
+
+# Calculate the counts of each Site_type within each group
+langs_counts <- filtered_data %>%
+  group_by(Group, langs) %>%
+  summarise(count = n())
+# Calculate the total count within each group
+group_counts <- langs_counts %>%
+  group_by(Group) %>%
+  summarise(total_count = sum(count))
+# without order by:
+# site_type_proportions <- site_type_counts %>%
+#   left_join(group_counts, by = "Group") %>%
+#   mutate(proportion = count / total_count,
+#          percent = proportion * 100)
+#with order by:
+langs_proportions <- langs_counts %>%
+  left_join(group_counts, by = "Group") %>%
+  mutate(proportion = count / total_count,
+         percent = proportion * 100) %>%
+  arrange(desc(percent))
+langs_proportions
+```
+
+
+
+
+
+
+
+
+
+
+
+
